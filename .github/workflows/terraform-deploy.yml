@@ -36,6 +36,13 @@ jobs:
       run: terraform validate -no-color
       working-directory: ./
 
+    - name: Import Existing com2 Instance
+      run: |
+        terraform import ibm_is_instance.com2_node 0797_40eda9eb-18d6-485f-820b-80b15e9c9ee2 || echo "Instance may already be imported or doesn't exist"
+      working-directory: ./
+      env:
+        TF_VAR_ibmcloud_api_key: ${{ secrets.IBM_CLOUD_API_KEY }}
+
     - name: Terraform Plan
       run: terraform plan -no-color
       working-directory: ./
