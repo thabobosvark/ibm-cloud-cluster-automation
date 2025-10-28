@@ -9,7 +9,7 @@ on:
       node_name:
         description: 'Compute node name'
         required: true
-        default: 'com2'
+        default: 'com3'
 
 jobs:
   terraform-deploy:
@@ -54,14 +54,14 @@ jobs:
     - name: Get Terraform Outputs
       id: terraform
       run: |
-        echo "instance_id=$(terraform output -raw com2_instance_id)" >> $GITHUB_OUTPUT
-        echo "private_ip=$(terraform output -raw com2_private_ip)" >> $GITHUB_OUTPUT
+        echo "instance_id=$(terraform output -raw com3_instance_id)" >> $GITHUB_OUTPUT
+        echo "private_ip=$(terraform output -raw com3_private_ip)" >> $GITHUB_OUTPUT
       working-directory: ./terraform
 
     - name: Update Ansible Inventory
       run: |
         NEW_IP=${{ steps.terraform.outputs.private_ip }}
-        NODE_NAME=${{ github.event.inputs.node_name || 'com2' }}
+        NODE_NAME=${{ github.event.inputs.node_name || 'com3' }}
         
         # Update inventory file with new node
         cat > ansible/inventory.yml << EOL
@@ -91,6 +91,9 @@ jobs:
                 com1:
                   ansible_host: 10.242.64.5
                   node_type: compute
+                com2:
+                  ansible_host: 10.242.64.6
+                  node_type: compute
                 $NODE_NAME:
                   ansible_host: $NEW_IP
                   node_type: compute
@@ -99,6 +102,7 @@ jobs:
               hosts:
                 head:
                 com1:
+                com2:
                 $NODE_NAME:
         EOL
         
@@ -160,6 +164,6 @@ jobs:
 
         ## Next Steps
         1. SSH to head node: \`ssh clusteradmin@141.125.159.109\`
-        2. Verify cluster: \`ssh com2 hostname\`
+        2. Verify cluster: \`ssh ${{ github.event.inputs.node_name || 'com3' }} hostname\`
         3. Check NFS: \`ls /home\` on compute nodes
         EOF
