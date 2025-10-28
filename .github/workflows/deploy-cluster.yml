@@ -1,18 +1,13 @@
-name: Deploy and Configure Compute Node on IBM Cloud
+name: Deploy Compute Node on IBM Cloud
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      node_name:
-        description: 'Compute node name'
-        required: true
-        default: 'com3'
 
 jobs:
   terraform-deploy:
-    name: 'Terraform Infrastructure Deployment'
+    name: 'Deploy Compute Node'
     runs-on: ubuntu-latest
     
     steps:
@@ -21,12 +16,6 @@ jobs:
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: '1.5.0'
-
-    - name: Terraform Format
-      run: terraform fmt
-      working-directory: ./terraform
 
     - name: Terraform Init
       run: terraform init
@@ -44,101 +33,25 @@ jobs:
       run: terraform apply -auto-approve -var="ibmcloud_api_key=${{ secrets.IBM_CLOUD_API_KEY }}"
       working-directory: ./terraform
 
-    - name: Get Terraform Outputs
+    - name: Get Outputs
       id: terraform
       run: |
-        echo "instance_id=$(terraform output -raw com3_instance_id)" >> $GITHUB_OUTPUT
         echo "private_ip=$(terraform output -raw com3_private_ip)" >> $GITHUB_OUTPUT
+        echo "public_ip=$(terraform output -raw com3_public_ip)" >> $GITHUB_OUTPUT
       working-directory: ./terraform
 
-    - name: Update Ansible Inventory
-      run: |
-        NEW_IP=${{ steps.terraform.outputs.private_ip }}
-        NODE_NAME=${{ github.event.inputs.node_name || 'com3' }}
-        
-        cat > ansible/inventory.yml << EOL
----
-all:
-  vars:
-    ansible_user: clusteradmin
-    ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
-    cluster_user: clusteradmin
-    head_node_ip: 10.242.64.4
-    nfs_export_path: /home
-    timezone: "UTC"
-    cluster_network: "10.242.64.0/24"
-    nfs_server: "head"
-    mount_point: "/home"
-
-  children:
-    head_node:
-      hosts:
-        head:
-          ansible_host: 10.242.64.4
-          node_type: head
-
-    compute:
-      hosts:
-        com1:
-          ansible_host: 10.242.64.5
-          node_type: compute
-        com2:
-          ansible_host: 10.242.64.6
-          node_type: compute
-        $NODE_NAME:
-          ansible_host: $NEW_IP
-          node_type: compute
-
-    cluster:
-      hosts:
-        head:
-        com1:
-        com2:
-        $NODE_NAME:
-EOL
-        echo "Updated inventory with new node: $NODE_NAME ($NEW_IP)"
-
-  ansible-configuration:
-    name: 'Ansible Configuration Management'
-    runs-on: ubuntu-latest
-    needs: terraform-deploy
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-
-    - name: Install Ansible
-      run: |
-        pip install ansible
-
-    - name: Display cluster status
-      run: |
-        echo "New node deployed at: ${{ needs.terraform-deploy.outputs.private_ip }}"
-        echo "Manual configuration may be required for full Ansible automation"
-
-  final-report:
-    name: 'Generate Deployment Report'
+  report:
+    name: 'Deployment Report'
     runs-on: ubuntu-latest
     needs: [terraform-deploy]
     
     steps:
-    - name: Create deployment summary
+    - name: Create summary
       run: |
         cat >> $GITHUB_STEP_SUMMARY << EOF
-        # IBM Cloud Cluster Deployment Complete ✅
-
-        ## Infrastructure Details
-        - **New Node**: ${{ needs.terraform-deploy.outputs.private_ip }}
-        - **Instance ID**: ${{ needs.terraform-deploy.outputs.instance_id }}
-
-        ## Next Steps
-        1. SSH to head node: \`ssh clusteradmin@141.125.159.109\`
-        2. Manually configure new node if needed
-        3. Verify cluster connectivity
+        # Compute Node Deployment Complete ✅
+        - **New Node Private IP**: ${{ needs.terraform-deploy.outputs.private_ip }}
+        - **New Node Public IP**: ${{ needs.terraform-deploy.outputs.public_ip }}
+        - **Deployment Time**: $(date)
+        - **Region**: eu-gb
         EOF

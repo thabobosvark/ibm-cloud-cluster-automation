@@ -10,38 +10,59 @@ terraform {
 
 provider "ibm" {
   ibmcloud_api_key = var.ibmcloud_api_key
-  region           = "us-south"
+  region           = "eu-gb"
 }
 
-# Data source for existing VPC (use existing instead of creating new)
-data "ibm_is_vpc" "existing_vpc" {
-  name = "hpc-cluster-vpc"
+# Create a VPC
+resource "ibm_is_vpc" "cluster_vpc" {
+  name = "hpc-cluster-vpc-${formatdate("YYYYMMDD", timestamp())}"
 }
 
-# Data source for existing subnet
-data "ibm_is_subnet" "existing_subnet" {
-  name = "hpc-cluster-subnet"
+# Create a subnet
+resource "ibm_is_subnet" "cluster_subnet" {
+  name                     = "hpc-cluster-subnet-${formatdate("YYYYMMDD", timestamp())}"
+  vpc                      = ibm_is_vpc.cluster_vpc.id
+  zone                     = "eu-gb-1"
+  total_ipv4_address_count = 256
 }
 
-# Data source for existing security group
-data "ibm_is_security_group" "existing_sg" {
-  name = "hpc-cluster-sg"
+# Create a security group
+resource "ibm_is_security_group" "cluster_sg" {
+  name = "hpc-cluster-sg-${formatdate("YYYYMMDD", timestamp())}"
+  vpc  = ibm_is_vpc.cluster_vpc.id
 }
 
-# Create a new compute node
+# Allow SSH access
+resource "ibm_is_security_group_rule" "ssh_in" {
+  group     = ibm_is_security_group.cluster_sg.id
+  direction = "inbound"
+  remote    = "0.0.0.0/0"
+  tcp {
+    port_min = 22
+    port_max = 22
+  }
+}
+
+# Allow all outbound traffic
+resource "ibm_is_security_group_rule" "all_out" {
+  group     = ibm_is_security_group.cluster_sg.id
+  direction = "outbound"
+  remote    = "0.0.0.0/0"
+}
+
+# Create the compute instance
 resource "ibm_is_instance" "com3_node" {
   name    = "com3-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
-  image   = var.image_id
-  profile = var.profile
-  keys    = [var.ssh_key_id]
+  image   = "r018-2c3e9f72-2e95-4a3c-8e4d-f6c4bdc77f9b"  # CentOS 9 for eu-gb
+  profile = "bx2-2x8"
+  keys    = ["r018-0882fad6-6daa-434a-9165-b3b29ae6814e"]  # Your SSH key ID
+  vpc     = ibm_is_vpc.cluster_vpc.id
+  zone    = "eu-gb-1"
 
   primary_network_interface {
-    subnet          = data.ibm_is_subnet.existing_subnet.id
-    security_groups = [data.ibm_is_security_group.existing_sg.id]
+    subnet          = ibm_is_subnet.cluster_subnet.id
+    security_groups = [ibm_is_security_group.cluster_sg.id]
   }
-
-  vpc  = data.ibm_is_vpc.existing_vpc.id
-  zone = "us-south-1"
 
   timeouts {
     create = "30m"
@@ -50,6 +71,7 @@ resource "ibm_is_instance" "com3_node" {
   }
 }
 
+# Optional: Create floating IP
 resource "ibm_is_floating_ip" "com3_fip" {
   name   = "com3-floating-ip-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   target = ibm_is_instance.com3_node.primary_network_interface[0].id
