@@ -13,29 +13,29 @@ provider "ibm" {
   region           = "eu-gb"
 }
 
-# Use your existing VPC
+# Use the default VPC where your existing instances are
 data "ibm_is_vpc" "existing_vpc" {
-  name = "hpc-cluster-vpc-20251028"  # Your actual VPC name
+  name = "eu-gb-default-vpc-10182040"  # Your actual default VPC
 }
 
-# Use your existing subnet
+# Use the default subnet where your existing instances are
 data "ibm_is_subnet" "existing_subnet" {
-  name = "hpc-cluster-subnet-20251028"  # Your actual subnet name
+  name = "eu-gb-2-default-subnet"  # Your actual default subnet
 }
 
-# Use your existing security group
+# Use the default security group
 data "ibm_is_security_group" "existing_sg" {
-  name = "hpc-cluster-sg-20251028"  # Your actual security group name
+  name = "footless-viper-prowler-fabric"  # Your default security group
 }
 
-# Create the compute instance using your existing infrastructure
+# Create the compute instance using the same infrastructure as your existing nodes
 resource "ibm_is_instance" "com3_node" {
   name    = "com3-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   image   = var.image_id
   profile = var.profile
   keys    = [var.ssh_key_id]
   vpc     = data.ibm_is_vpc.existing_vpc.id
-  zone    = "eu-gb-1"
+  zone    = "eu-gb-2"  # Changed to eu-gb-2 to match your existing instances
 
   primary_network_interface {
     subnet          = data.ibm_is_subnet.existing_subnet.id

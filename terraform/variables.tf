@@ -13,7 +13,7 @@ variable "ssh_key_id" {
 variable "image_id" {
   description = "Image ID for the instance"
   type        = string
-  default     = "r018-2c3e9f72-2e95-4a3c-8e4d-f6c4bdc77f9b"
+  default     = "r018-8aac48f7-8a92-4fe4-a7dc-a7adce4b1656"  # Correct CentOS Stream 9 image
 }
 
 variable "profile" {
