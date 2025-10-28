@@ -1,0 +1,85 @@
+---
+- name: Install HPC software stack
+  hosts: cluster
+  become: yes
+  vars:
+    openmpi_version: "4.1.4"
+    hpl_version: "2.3"
+
+  tasks:
+    - name: Install development tools
+      dnf:
+        name:
+          - gcc
+          - gcc-c++
+          - gcc-gfortran
+          - make
+          - cmake
+          - autoconf
+          - automake
+          - libtool
+          - pkgconfig
+          - environment-modules
+        state: present
+
+    - name: Install OpenMPI dependencies
+      dnf:
+        name:
+          - openmpi
+          - openmpi-devel
+          - hwloc
+          - hwloc-devel
+          - libevent
+          - libevent-devel
+        state: present
+
+    - name: Install mathematical libraries
+      dnf:
+        name:
+          - atlas
+          - atlas-devel
+          - openblas
+          - openblas-devel
+          - lapack
+          - lapack-devel
+        state: present
+
+    - name: Create HPC software directory
+      file:
+        path: "/opt/hpc"
+        state: directory
+        mode: '0755'
+
+    - name: Download HPL source code
+      get_url:
+        url: "http://www.netlib.org/benchmark/hpl/hpl-{{ hpl_version }}.tar.gz"
+        dest: "/tmp/hpl-{{ hpl_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract HPL source
+      unarchive:
+        src: "/tmp/hpl-{{ hpl_version }}.tar.gz"
+        dest: "/opt/hpc"
+        remote_src: yes
+        owner: "{{ cluster_user }}"
+        group: "{{ cluster_user }}"
+
+    - name: Set environment variables for MPI
+      lineinfile:
+        path: "/etc/environment"
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "PATH=/usr/lib64/openmpi/bin:$PATH"
+        - "LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH"
+        - "MANPATH=/usr/lib64/openmpi/share/man:$MANPATH"
+
+    - name: Configure environment for all users
+      copy:
+        content: |
+          # HPC Environment
+          module load mpi
+          export PATH=/usr/lib64/openmpi/bin:$PATH
+          export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+        dest: "/etc/profile.d/hpc-environment.sh"
+        mode: '0644'

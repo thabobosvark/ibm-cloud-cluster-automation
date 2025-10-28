@@ -1,0 +1,40 @@
+---
+- name: Quick cluster check
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Check basic commands work
+      command: whoami
+      register: whoami_result
+
+    - name: Display whoami result
+      debug:
+        var: whoami_result.stdout
+
+    - name: Check NFS mount on compute nodes
+      stat:
+        path: /home
+      register: nfs_mount
+      when: "'compute' in group_names"
+
+    - name: Display NFS mount status
+      debug:
+        msg: "NFS mount on {{ inventory_hostname }}: {{ nfs_mount.stat.exists }}"
+      when: "'compute' in group_names"
+
+    - name: Test file creation in shared home
+      copy:
+        content: "Test file from {{ inventory_hostname }} at {{ ansible_date_time.epoch }}"
+        dest: "/home/clusteradmin/test-from-{{ inventory_hostname }}.txt"
+        mode: '0644'
+      become_user: clusteradmin
+
+    - name: List test files
+      command: ls -la /home/clusteradmin/test-from-*.txt
+      register: test_files
+      become_user: clusteradmin
+
+    - name: Display test files
+      debug:
+        var: test_files.stdout

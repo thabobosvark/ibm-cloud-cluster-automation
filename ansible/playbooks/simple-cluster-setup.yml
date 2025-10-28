@@ -1,0 +1,177 @@
+---
+- name: Simple HPC cluster setup
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Update package cache
+      dnf:
+        update_cache: yes
+
+    - name: Install essential packages only
+      dnf:
+        name:
+          - git
+          - curl
+          - wget
+          - vim
+          - tree
+          - net-tools
+          - bind-utils
+          - nftables
+          - chrony
+          - nfs-utils
+          - openssh-server
+          - sudo
+          - python3
+        state: present
+
+    - name: Create cluster user
+      user:
+        name: "{{ cluster_user }}"
+        state: present
+        groups: wheel
+        append: yes
+
+    - name: Configure sudo for cluster user
+      copy:
+        content: "{{ cluster_user }} ALL=(ALL) NOPASSWD:ALL"
+        dest: "/etc/sudoers.d/{{ cluster_user }}"
+        mode: '0440'
+
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone | default('UTC') }}"
+
+    - name: Enable and start chronyd
+      systemd:
+        name: chronyd
+        enabled: yes
+        state: started
+
+    - name: Enable and start sshd
+      systemd:
+        name: sshd
+        enabled: yes
+        state: started
+
+    - name: Disable and stop firewalld
+      systemd:
+        name: firewalld
+        enabled: no
+        state: stopped
+
+    - name: Enable and start nftables
+      systemd:
+        name: nftables
+        enabled: yes
+        state: started
+
+- name: Configure networking
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Configure /etc/hosts file
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          10.242.64.4 head
+          10.242.64.5 com1
+          10.242.64.6 com2
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - CLUSTER HOSTS"
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: yes
+
+- name: Configure shared storage
+  hosts: head_node
+  become: yes
+
+  tasks:
+    - name: Configure NFS exports
+      copy:
+        content: "{{ nfs_export_path }} {{ cluster_network }}(rw,async,no_subtree_check,no_root_squash)"
+        dest: /etc/exports
+
+    - name: Enable and start NFS server
+      systemd:
+        name: nfs-server
+        enabled: yes
+        state: started
+
+    - name: Export NFS shares
+      command: exportfs -ra
+
+- name: Configure NFS clients
+  hosts: compute
+  become: yes
+
+  tasks:
+    - name: Create mount point
+      file:
+        path: "{{ mount_point }}"
+        state: directory
+        mode: '0755'
+
+    - name: Mount NFS share temporarily
+      mount:
+        path: "{{ mount_point }}"
+        src: "{{ nfs_server }}:{{ nfs_export_path }}"
+        fstype: nfs
+        state: mounted
+        opts: defaults
+
+    - name: Configure permanent NFS mount
+      lineinfile:
+        path: /etc/fstab
+        line: "{{ nfs_server }}:{{ nfs_export_path }} {{ mount_point }} nfs defaults 0 0"
+        state: present
+
+- name: Configure SSH
+  hosts: head_node
+  become: yes
+
+  tasks:
+    - name: Generate SSH key pair on head node
+      openssh_keypair:
+        path: "/home/{{ cluster_user }}/.ssh/id_ed25519"
+        type: ed25519
+        state: present
+        force: no
+
+    - name: Ensure SSH directory exists on all nodes
+      file:
+        path: "/home/{{ cluster_user }}/.ssh"
+        state: directory
+        mode: '0700'
+        owner: "{{ cluster_user }}"
+        group: "{{ cluster_user }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.cluster }}"
+
+    - name: Copy public key to authorized_keys on head node
+      authorized_key:
+        user: "{{ cluster_user }}"
+        state: present
+        key: "{{ lookup('file', '/home/' + cluster_user + '/.ssh/id_ed25519.pub') }}"
+
+    - name: Distribute SSH public key to compute nodes
+      authorized_key:
+        user: "{{ cluster_user }}"
+        state: present
+        key: "{{ lookup('file', '/home/' + cluster_user + '/.ssh/id_ed25519.pub') }}"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups.compute }}"
+
+    - name: Test passwordless SSH
+      shell: |
+        ssh -o ConnectTimeout=5 {{ cluster_user }}@{{ item }} "echo 'SSH successful to {{ item }}'"
+      loop: "{{ groups.compute }}"
+      register: ssh_test
+      changed_when: false
+      become_user: "{{ cluster_user }}"

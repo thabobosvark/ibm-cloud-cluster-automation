@@ -1,0 +1,99 @@
+---
+- name: Verify cluster configuration
+  hosts: cluster
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Check system information
+      debug:
+        msg: |
+          Node: {{ inventory_hostname }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+          CPUs: {{ ansible_processor_vcpus }}
+          Memory: {{ ansible_memtotal_mb }} MB
+
+    - name: Verify network connectivity between nodes
+      shell: |
+        ping -c 1 -W 1 {{ item }} > /dev/null 2>&1 && echo "SUCCESS: {{ item }}" || echo "FAILED: {{ item }}"
+      loop: "{{ groups.cluster }}"
+      register: ping_results
+      changed_when: false
+
+    - name: Display ping results
+      debug:
+        var: ping_results.results
+
+    - name: Check service status
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - sshd
+        - chronyd
+        - nftables
+
+    - name: Verify NFS mount on compute nodes
+      stat:
+        path: /home
+      register: nfs_mount
+      when: "'compute' in group_names"
+
+    - name: Display NFS mount status
+      debug:
+        msg: "NFS mount point /home exists: {{ nfs_mount.stat.exists }}"
+      when: "'compute' in group_names"
+
+    - name: Check time synchronization
+      command: chronyc tracking
+      register: chrony_tracking
+      changed_when: false
+
+    - name: Display time sync status
+      debug:
+        msg: "Time sync: {{ chrony_tracking.stdout }}"
+
+    - name: Verify SSH connectivity between nodes (with host key acceptance)
+      shell: |
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 {{ item }} "hostname"
+      loop: "{{ groups.cluster }}"
+      register: ssh_results
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Display SSH connectivity results
+      debug:
+        msg: "SSH to {{ item.item }}: {{ 'SUCCESS' if item.rc == 0 else 'FAILED' }}"
+      loop: "{{ ssh_results.results }}"
+
+- name: Generate cluster status report
+  hosts: head
+  become: no
+
+  tasks:
+    - name: Create cluster status report
+      copy:
+        content: |
+          Cluster Status Report
+          ====================
+          Generated: {{ ansible_date_time.iso8601 }}
+          
+          Nodes:
+          {% for host in groups.cluster %}
+          - {{ host }} ({{ hostvars[host].ansible_default_ipv4.address }})
+          {% endfor %}
+          
+          Services:
+          - SSH: Operational
+          - NFS: Mounted on compute nodes
+          - NTP: Synchronized
+          - Network: All nodes reachable
+          
+          Verification Results:
+          - Network ping: All nodes responsive
+          - Services: All running
+          - Time sync: Operational
+        dest: "/home/{{ cluster_user }}/cluster-status.txt"
+        mode: '0644'

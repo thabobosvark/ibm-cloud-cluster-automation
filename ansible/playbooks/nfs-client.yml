@@ -1,0 +1,40 @@
+---
+- name: Configure NFS clients
+  hosts: compute
+  become: yes
+  vars:
+    nfs_server: "head"
+    nfs_export_path: "/home"
+    mount_point: "/home"
+
+  tasks:
+    - name: Install NFS client packages
+      dnf:
+        name: nfs-utils
+        state: present
+
+    - name: Create mount point
+      file:
+        path: "{{ mount_point }}"
+        state: directory
+        mode: '0755'
+
+    - name: Mount NFS share temporarily
+      mount:
+        path: "{{ mount_point }}"
+        src: "{{ nfs_server }}:{{ nfs_export_path }}"
+        fstype: nfs
+        state: mounted
+        opts: defaults
+
+    - name: Configure permanent NFS mount
+      lineinfile:
+        path: /etc/fstab
+        line: "{{ nfs_server }}:{{ nfs_export_path }} {{ mount_point }} nfs defaults 0 0"
+        state: present
+
+    - name: Set SELinux boolean for NFS home directories
+      seboolean:
+        name: use_nfs_home_dirs
+        state: yes
+        persistent: yes

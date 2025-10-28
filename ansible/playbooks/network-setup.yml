@@ -1,0 +1,67 @@
+---
+- name: Configure cluster networking
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Configure /etc/hosts file
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          10.242.64.4 head
+          10.242.64.5 com1
+          10.242.64.6 com2
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - CLUSTER HOSTS"
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: yes
+
+    - name: Configure basic nftables rules
+      copy:
+        content: |
+          #!/usr/sbin/nft -f
+          flush ruleset
+          
+          table inet filter {
+            chain input {
+              type filter hook input priority 0; policy drop;
+              
+              ct state invalid drop
+              ct state {established, related} accept
+              
+              iifname "lo" accept
+              
+              # SSH access
+              tcp dport 22 accept
+              
+              # NFS ports
+              tcp dport { 111, 2049, 20048 } accept
+              udp dport { 111, 2049, 20048 } accept
+              
+              # NTP
+              udp dport 123 accept
+              
+              # ICMP
+              ip protocol icmp accept
+            }
+            
+            chain forward {
+              type filter hook forward priority 0; policy drop;
+              ct state {established, related} accept
+            }
+            
+            chain output {
+              type filter hook output priority 0; policy accept;
+            }
+          }
+        dest: /etc/nftables.conf
+        mode: '0755'
+
+    - name: Restart nftables
+      systemd:
+        name: nftables
+        state: restarted

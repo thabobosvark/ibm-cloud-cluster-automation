@@ -1,0 +1,25 @@
+---
+- name: Configure NTP server on head node
+  hosts: head_node
+  become: yes
+
+  tasks:
+    - name: Configure chrony as NTP server
+      copy:
+        content: |
+          pool 2.rhel.pool.ntp.org iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          allow 10.242.64.0/24
+          local stratum 10
+          keyfile /etc/chrony.keys
+          leapsectz right/UTC
+          logdir /var/log/chrony
+        dest: /etc/chrony.conf
+        backup: yes
+
+    - name: Restart chronyd
+      systemd:
+        name: chronyd
+        state: restarted

@@ -1,0 +1,73 @@
+---
+- name: Configure NFS shared storage
+  hosts: head
+  become: yes
+  vars:
+    nfs_export_path: "/home"
+    cluster_network: "10.242.64.0/24"
+
+  tasks:
+    - name: Install NFS server packages
+      dnf:
+        name: nfs-utils
+        state: present
+
+    - name: Configure NFS exports
+      copy:
+        content: "{{ nfs_export_path }} {{ cluster_network }}(rw,async,no_subtree_check,no_root_squash)"
+        dest: /etc/exports
+
+    - name: Create NFS export directory
+      file:
+        path: "{{ nfs_export_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Enable and start NFS server
+      systemd:
+        name: nfs-server
+        enabled: yes
+        state: started
+
+    - name: Export NFS shares
+      command: exportfs -ra
+
+- name: Configure NFS clients
+  hosts: compute
+  become: yes
+  vars:
+    nfs_server: "head"
+    nfs_export_path: "/home"
+    mount_point: "/home"
+
+  tasks:
+    - name: Install NFS client packages
+      dnf:
+        name: nfs-utils
+        state: present
+
+    - name: Create mount point
+      file:
+        path: "{{ mount_point }}"
+        state: directory
+        mode: '0755'
+
+    - name: Mount NFS share temporarily
+      mount:
+        path: "{{ mount_point }}"
+        src: "{{ nfs_server }}:{{ nfs_export_path }}"
+        fstype: nfs
+        state: mounted
+        opts: defaults
+
+    - name: Configure permanent NFS mount
+      lineinfile:
+        path: /etc/fstab
+        line: "{{ nfs_server }}:{{ nfs_export_path }} {{ mount_point }} nfs defaults 0 0"
+        state: present
+
+    - name: Set SELinux boolean for NFS home directories
+      seboolean:
+        name: use_nfs_home_dirs
+        state: yes
+        persistent: yes

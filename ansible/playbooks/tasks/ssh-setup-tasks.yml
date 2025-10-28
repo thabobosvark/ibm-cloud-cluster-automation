@@ -1,0 +1,46 @@
+- name: Generate SSH key pair on head node
+  openssh_keypair:
+    path: "/home/{{ cluster_user }}/.ssh/id_ed25519"
+    type: ed25519
+    state: present
+    force: no
+
+- name: Ensure SSH directory exists on all nodes
+  file:
+    path: "/home/{{ cluster_user }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ cluster_user }}"
+    group: "{{ cluster_user }}"
+  delegate_to: "{{ item }}"
+  loop: "{{ groups.cluster }}"
+
+- name: Copy public key to authorized_keys on head node
+  authorized_key:
+    user: "{{ cluster_user }}"
+    state: present
+    key: "{{ lookup('file', '/home/' + cluster_user + '/.ssh/id_ed25519.pub') }}"
+
+- name: Distribute SSH public key to compute nodes
+  authorized_key:
+    user: "{{ cluster_user }}"
+    state: present
+    key: "{{ lookup('file', '/home/' + cluster_user + '/.ssh/id_ed25519.pub') }}"
+  delegate_to: "{{ item }}"
+  loop: "{{ groups.compute }}"
+
+- name: Configure SSH known_hosts to avoid host key verification
+  shell: |
+    ssh-keyscan -H {{ item }} >> /home/{{ cluster_user }}/.ssh/known_hosts
+  loop: "{{ groups.cluster }}"
+  args:
+    executable: /bin/bash
+  become_user: "{{ cluster_user }}"
+
+- name: Test passwordless SSH as clusteradmin user
+  shell: |
+    ssh -o ConnectTimeout=5 {{ cluster_user }}@{{ item }} "echo 'SSH successful to {{ item }}'"
+  loop: "{{ groups.compute }}"
+  register: ssh_test
+  changed_when: false
+  become_user: "{{ cluster_user }}"

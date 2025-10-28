@@ -1,0 +1,64 @@
+---
+- name: Complete HPC cluster deployment
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Run base system setup
+      include_tasks: tasks/base-setup-tasks.yml
+
+- name: Configure networking
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Run network setup
+      include_tasks: tasks/network-setup-tasks.yml
+
+- name: Configure shared storage
+  hosts: head_node
+  become: yes
+
+  tasks:
+    - name: Run NFS server setup
+      include_tasks: tasks/nfs-server-tasks.yml
+
+- name: Configure NFS clients
+  hosts: compute
+  become: yes
+
+  tasks:
+    - name: Run NFS client setup
+      include_tasks: tasks/nfs-client-tasks.yml
+
+- name: Configure time synchronization
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Run NTP setup
+      include_tasks: tasks/ntp-setup-tasks.yml
+
+- name: Configure SSH
+  hosts: head_node
+  become: yes
+
+  tasks:
+    - name: Run SSH setup
+      include_tasks: tasks/ssh-setup-tasks.yml
+
+- name: Install HPC software
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Run HPC software setup
+      include_tasks: tasks/hpc-software-tasks.yml
+
+- name: Verify deployment
+  hosts: cluster
+  become: yes
+
+  tasks:
+    - name: Run verification
+      include_tasks: tasks/verify-cluster-tasks.yml

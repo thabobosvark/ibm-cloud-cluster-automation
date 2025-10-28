@@ -1,0 +1,60 @@
+- name: Install development tools
+  dnf:
+    name:
+      - gcc
+      - gcc-c++
+      - gcc-gfortran
+      - make
+      - cmake
+      - autoconf
+      - automake
+      - libtool
+      - pkgconfig
+      - environment-modules
+    state: present
+
+- name: Install OpenMPI dependencies
+  dnf:
+    name:
+      - openmpi
+      - openmpi-devel
+      - hwloc
+      - hwloc-devel
+      - libevent
+      - libevent-devel
+    state: present
+
+- name: Install available mathematical libraries
+  dnf:
+    name:
+      - atlas
+      - atlas-devel
+      - openblas
+      - lapack
+    state: present
+
+- name: Create HPC software directory
+  file:
+    path: "/opt/hpc"
+    state: directory
+    mode: '0755'
+
+- name: Set environment variables for MPI
+  lineinfile:
+    path: "/etc/environment"
+    line: "{{ item }}"
+    state: present
+  loop:
+    - "PATH=/usr/lib64/openmpi/bin:$PATH"
+    - "LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH"
+    - "MANPATH=/usr/lib64/openmpi/share/man:$MANPATH"
+
+- name: Configure environment for all users
+  copy:
+    content: |
+      # HPC Environment
+      module load mpi
+      export PATH=/usr/lib64/openmpi/bin:$PATH
+      export LD_LIBRARY_PATH=/usr/lib64/openmpi/lib:$LD_LIBRARY_PATH
+    dest: "/etc/profile.d/hpc-environment.sh"
+    mode: '0644'

@@ -1,0 +1,30 @@
+---
+- name: Configure NTP clients on compute nodes
+  hosts: compute
+  become: yes
+
+  tasks:
+    - name: Configure chrony as NTP client
+      copy:
+        content: |
+          server head iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          keyfile /etc/chrony.keys
+          leapsectz right/UTC
+          logdir /var/log/chrony
+        dest: /etc/chrony.conf
+        backup: yes
+
+    - name: Restart chronyd
+      systemd:
+        name: chronyd
+        state: restarted
+
+    - name: Wait for NTP synchronization
+      command: chronyc waitsync 10
+      register: ntp_sync
+      until: ntp_sync.rc == 0
+      retries: 10
+      delay: 5

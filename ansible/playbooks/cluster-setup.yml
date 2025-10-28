@@ -1,0 +1,62 @@
+---
+- name: Complete HPC cluster configuration
+  hosts: cluster
+  become: yes
+  vars:
+    cluster_user: "clusteradmin"
+
+  pre_tasks:
+    - name: Wait for SSH to be available
+      wait_for_connection:
+        timeout: 60
+
+  roles: []
+
+  tasks:
+    - name: Include base system setup
+      include_tasks: ../tasks/base-setup.yml
+
+    - name: Include network setup
+      include_tasks: ../tasks/network-setup.yml
+
+- name: Configure head node services
+  hosts: head
+  become: yes
+
+  tasks:
+    - name: Include NFS server setup
+      include_tasks: ../tasks/nfs-server.yml
+
+    - name: Include NTP server setup
+      include_tasks: ../tasks/ntp-server.yml
+
+- name: Configure compute nodes
+  hosts: compute
+  become: yes
+
+  tasks:
+    - name: Include NFS client setup
+      include_tasks: ../tasks/nfs-client.yml
+
+    - name: Include NTP client setup
+      include_tasks: ../tasks/ntp-client.yml
+
+- name: Final cluster configuration
+  hosts: head
+  become: yes
+
+  tasks:
+    - name: Include SSH setup
+      include_tasks: ../tasks/ssh-setup.yml
+
+    - name: Test cluster connectivity
+      shell: |
+        for node in com1 com2; do
+          ssh -o ConnectTimeout=5 $node "echo 'Connection successful to $node'"
+        done
+      register: connectivity_test
+      changed_when: false
+
+    - name: Display connectivity test results
+      debug:
+        var: connectivity_test.stdout_lines
