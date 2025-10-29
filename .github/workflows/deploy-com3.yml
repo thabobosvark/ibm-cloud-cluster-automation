@@ -41,36 +41,50 @@ jobs:
         echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
         echo "Com3 Private IP: $COM3_IP"
 
-    - name: Display manual instructions
+    - name: Configure com3 using ProxyJump
+      run: |
+        echo "Configuring com3 at $COM3_IP using ProxyJump through head node"
+        
+        # STEP 1: Use ProxyJump to SSH to com3 as root through head node
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -J clusteradmin@141.125.159.109 root@$COM3_IP "adduser clusteradmin"
+        
+        # STEP 2: Set password
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
+        
+        # STEP 3: Setup sudo access
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
+
+    - name: Setup NFS on com3 using ProxyJump
+      run: |
+        echo "Setting up NFS on com3 at $COM3_IP using ProxyJump"
+        
+        # Login as clusteradmin to com3 through head node and setup NFS
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "sudo dnf install nfs-utils -y"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "cd / && sudo mount -t nfs head:/home /home"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
+
+    - name: Verify setup using ProxyJump
+      run: |
+        echo "Verifying setup on com3 at $COM3_IP using ProxyJump"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "id && echo '✓ Logged in as clusteradmin'"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP "sudo -l | head -5 && echo '✓ Sudo access working'"
+
+    - name: Display completion message
       run: |
         echo "=========================================="
-        echo "✅ COM3 INSTANCE CREATED"
+        echo "✅ COM3 DEPLOYMENT COMPLETE"
         echo "=========================================="
         echo "com3 node (Private): $COM3_IP"
+        echo "User: clusteradmin"
+        echo "Password: !Super@4"
+        echo "NFS: Mounted /home from head node"
         echo ""
-        echo "MANUAL STEP REQUIRED:"
-        echo "1. Go to IBM Cloud Console"
-        echo "2. Find the floating IP: 141.125.157.5"
-        echo "3. Bind it to the new com3 instance"
-        echo "4. After binding, run these commands:"
+        echo "To connect from your workstation:"
+        echo "ssh -J clusteradmin@141.125.159.109 clusteradmin@$COM3_IP"
         echo ""
-        echo "First, as root:"
-        echo "ssh root@141.125.157.5"
-        echo "adduser clusteradmin"
-        echo "echo '!Super@4' | passwd --stdin clusteradmin"
-        echo "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
-        echo "chmod 440 /etc/sudoers.d/clusteradmin"
-        echo "exit"
-        echo ""
-        echo "Then, as clusteradmin:"
-        echo "ssh clusteradmin@141.125.157.5"
-        echo "sudo dnf install nfs-utils -y"
-        echo "cd / && sudo mount -t nfs head:/home /home"
-        echo "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
-        echo ""
-        echo "To verify:"
-        echo "ssh clusteradmin@141.125.157.5"
-        echo "id"
-        echo "mount | grep nfs"
-        echo "sudo -l"
+        echo "Or connect via head node:"
+        echo "ssh clusteradmin@141.125.159.109"
+        echo "ssh clusteradmin@$COM3_IP"
         echo "=========================================="
