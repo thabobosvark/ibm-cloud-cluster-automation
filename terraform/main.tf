@@ -33,7 +33,7 @@ resource "ibm_is_instance" "com3_node" {
   name    = "com3-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
   image   = var.image_id
   profile = var.profile
-  keys    = [ibm_is_ssh_key.github_actions_key.id]  # Use our new key instead of the old one
+  keys    = [var.ssh_key_id]  # Use existing SSH key
   vpc     = data.ibm_is_vpc.existing_vpc.id
   zone    = "eu-gb-2"  # Changed to eu-gb-2 to match your existing instances
 
