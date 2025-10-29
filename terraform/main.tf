@@ -54,9 +54,10 @@ resource "ibm_is_instance" "com3_node" {
   }
 }
 
-# Bind the existing floating IP to the com3 instance
-resource "ibm_is_floating_ip_reservation" "com3_fip" {
-  floating_ip = data.ibm_is_floating_ip.com3_floating_ip.address
+# Bind the existing floating IP to the com3 instance - CORRECT RESOURCE TYPE
+resource "ibm_is_floating_ip_action" "com3_fip" {
+  floating_ip = data.ibm_is_floating_ip.com3_floating_ip.id
+  action      = "bind"
   target      = ibm_is_instance.com3_node.primary_network_interface[0].id
 }
 
