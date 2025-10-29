@@ -30,8 +30,9 @@ Or connect via head node:
 ssh clusteradmin@141.125.159.109
 ssh clusteradmin@10.242.64.26
 ```
+
 Repository Structure
-text
+```bash
 ├── .github/workflows/
 │   └── deploy-com3.yml          # CI/CD for new compute nodes
 ├── ansible/
@@ -40,3 +41,4 @@ text
 └── terraform/
     ├── main.tf                  # IBM Cloud infrastructure
     └── variables.tf             # Configuration variables
+```
