@@ -26,54 +26,59 @@ jobs:
       run: |
         sleep 60
 
-    - name: Get com3 IP
+    - name: Get com3 IPs
       id: terraform
       run: |
         cd terraform
-        terraform output com3_private_ip > ip.txt
-        COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
-        echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
-        echo "Com3 IP: $COM3_IP"
+        terraform output com3_private_ip > private_ip.txt
+        terraform output com3_public_ip > public_ip.txt
+        COM3_PRIVATE_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' private_ip.txt | head -1)
+        COM3_PUBLIC_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' public_ip.txt | head -1)
+        echo "COM3_PRIVATE_IP=$COM3_PRIVATE_IP" >> $GITHUB_ENV
+        echo "COM3_PUBLIC_IP=$COM3_PUBLIC_IP" >> $GITHUB_ENV
+        echo "Com3 Private IP: $COM3_PRIVATE_IP"
+        echo "Com3 Public IP: $COM3_PUBLIC_IP"
 
     - name: Configure com3 with basic setup
       run: |
-        echo "Configuring com3 at $COM3_IP"
+        echo "Configuring com3 at $COM3_PUBLIC_IP"
         
-        # STEP 1: Login as root and create user
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$COM3_IP "adduser clusteradmin"
+        # STEP 1: Login as root and create user via public IP
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$COM3_PUBLIC_IP "adduser clusteradmin"
         
         # STEP 2: Set password
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
+        ssh -o StrictHostKeyChecking=no root@$COM3_PUBLIC_IP "echo '!Super@4' | passwd --stdin clusteradmin"
         
         # STEP 3: Setup sudo access
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
+        ssh -o StrictHostKeyChecking=no root@$COM3_PUBLIC_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        ssh -o StrictHostKeyChecking=no root@$COM3_PUBLIC_IP "chmod 440 /etc/sudoers.d/clusteradmin"
 
     - name: Setup NFS as clusteradmin
       run: |
-        echo "Setting up NFS on com3 at $COM3_IP as clusteradmin"
+        echo "Setting up NFS on com3 at $COM3_PUBLIC_IP as clusteradmin"
         
         # Login as clusteradmin and run the exact commands you specified
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "sudo dnf install nfs-utils -y"
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "cd / && sudo mount -t nfs head:/home /home"
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "sudo dnf install nfs-utils -y"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "cd / && sudo mount -t nfs head:/home /home"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
 
     - name: Verify setup
       run: |
-        echo "Verifying setup on com3 at $COM3_IP"
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "id && echo '✓ Logged in as clusteradmin'"
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "sudo -l | head -5 && echo '✓ Sudo access working'"
+        echo "Verifying setup on com3 at $COM3_PUBLIC_IP"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "id && echo '✓ Logged in as clusteradmin'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "mount | grep nfs && echo '✓ NFS mounted'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_PUBLIC_IP "sudo -l | head -5 && echo '✓ Sudo access working'"
 
     - name: Display completion message
       run: |
         echo "=========================================="
         echo "✅ COM3 DEPLOYMENT COMPLETE"
         echo "=========================================="
-        echo "com3 node: $COM3_IP"
+        echo "com3 node (Public): $COM3_PUBLIC_IP"
+        echo "com3 node (Private): $COM3_PRIVATE_IP"
         echo "User: clusteradmin"
         echo "Password: !Super@4"
         echo "NFS: Mounted /home from head node"
         echo ""
-        echo "To connect: ssh clusteradmin@$COM3_IP"
+        echo "To connect: ssh clusteradmin@$COM3_PUBLIC_IP"
         echo "=========================================="
