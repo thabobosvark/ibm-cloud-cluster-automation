@@ -1,0 +1,149 @@
+name: Deploy IBM Compute Node
+
+on:
+  workflow_dispatch:  # Only manual triggers to avoid duplicates
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init and Apply
+      run: |
+        cd terraform
+        terraform init
+        terraform apply -auto-approve -var="ibmcloud_api_key=${{ secrets.IBM_CLOUD_API_KEY }}"
+
+    - name: Get com3 IP
+      id: terraform
+      run: |
+        cd terraform
+        terraform output com3_private_ip > ip.txt
+        COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
+        echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
+        echo "Com3 IP: $COM3_IP"
+
+    - name: Wait for com3 to be ready
+      run: |
+        echo "Waiting for com3 to be fully provisioned..."
+        sleep 120  # Longer wait for IBM Cloud
+
+    - name: Setup SSH access through head node
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+        chmod 600 ~/.ssh/id_ed25519
+        # Add head node to known hosts
+        ssh-keyscan -H 141.125.159.109 >> ~/.ssh/known_hosts
+
+    - name: Configure com3 via head node jump
+      run: |
+        echo "Configuring com3 at $COM3_IP via head node jump"
+        
+        # First, let's see what user exists on com3
+        ssh -i ~/.ssh/id_ed25519 clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$COM3_IP 'whoami' || echo 'Cannot connect as root'"
+        
+        # Try to connect and configure
+        ssh -i ~/.ssh/id_ed25519 clusteradmin@141.125.159.109 << 'HEAD_SCRIPT'
+          # From head node, configure com3
+          echo "Attempting to configure com3 at $COM3_IP"
+          
+          # First check if we can connect at all
+          if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@$COM3_IP "echo 'Connected successfully'"; then
+            echo "Root access works, configuring com3..."
+            
+            # Basic user setup
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "adduser clusteradmin"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "dnf install sudo -y"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "usermod -aG wheel clusteradmin"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
+            
+            # Add head node SSH key
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "mkdir -p /home/clusteradmin/.ssh"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJCCsrtROumtINmCBKvVHkd8gEK3d2CXmprcp97PIN0v clusteradmin@head' > /home/clusteradmin/.ssh/authorized_keys"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 700 /home/clusteradmin/.ssh"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 600 /home/clusteradmin/.ssh/authorized_keys"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "chown -R clusteradmin:clusteradmin /home/clusteradmin/.ssh"
+            
+            # Setup NFS
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "dnf install nfs-utils -y"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "mount -t nfs 10.242.64.4:/home /home"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '10.242.64.4:/home /home nfs defaults 0 0' >> /etc/fstab"
+            ssh -o StrictHostKeyChecking=no root@$COM3_IP "setsebool -P use_nfs_home_dirs 1"
+            
+            echo "Configuration completed!"
+          else
+            echo "Cannot connect to com3 as root. IBM Cloud key issue."
+            echo "Manual configuration required for com3 at $COM3_IP"
+          fi
+HEAD_SCRIPT
+
+    - name: Update Ansible inventory
+      run: |
+        echo "Updating Ansible inventory with com3 at $COM3_IP"
+        
+        cat > ansible/inventory.yml << INVENTORY
+---
+all:
+  vars:
+    ansible_user: clusteradmin
+    ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+    cluster_user: clusteradmin
+    head_node_ip: 10.242.64.4
+    nfs_export_path: /home
+    timezone: "UTC"
+    cluster_network: "10.242.64.0/24"
+    nfs_server: "head"
+    mount_point: "/home"
+
+  children:
+    head_node:
+      hosts:
+        head:
+          ansible_host: 10.242.64.4
+          node_type: head
+
+    compute:
+      hosts:
+        com1:
+          ansible_host: 10.242.64.5
+          node_type: compute
+        com2:
+          ansible_host: 10.242.64.6
+          node_type: compute
+        com3:
+          ansible_host: $COM3_IP
+          node_type: compute
+
+    cluster:
+      hosts:
+        head:
+        com1:
+        com2:
+        com3:
+INVENTORY
+
+    - name: Display completion message
+      run: |
+        echo "=========================================="
+        echo "✅ IBM CLOUD DEPLOYMENT COMPLETE"
+        echo "=========================================="
+        echo "com3 node: $COM3_IP"
+        echo "Note: Manual configuration may be needed if SSH key failed"
+        echo ""
+        echo "To manually configure com3:"
+        echo "1. SSH to head: ssh clusteradmin@141.125.159.109"
+        echo "2. From head, configure com3 manually:"
+        echo "   adduser clusteradmin"
+        echo "   passwd clusteradmin  # Set to !Super@4"
+        echo "   ... etc"
+        echo "=========================================="
