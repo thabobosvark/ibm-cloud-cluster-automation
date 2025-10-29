@@ -9,7 +9,7 @@ all:
     nfs_export_path: /home
     timezone: "UTC"
     cluster_network: "10.242.64.0/24"
-    nfs_server: "head"
+    nfs_server: "10.242.64.4"  # Use IP instead of hostname
     mount_point: "/home"
 
   children:
@@ -27,9 +27,13 @@ all:
         com2:
           ansible_host: 10.242.64.6
           node_type: compute
+        com3:
+          ansible_host: 10.242.64.26
+          node_type: compute
 
     cluster:  # All nodes group
       hosts:
         head:
         com1:
         com2:
+        com3:
