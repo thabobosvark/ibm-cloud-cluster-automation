@@ -32,57 +32,45 @@ jobs:
       run: |
         sleep 60
 
-    - name: Get com3 IPs
+    - name: Get com3 IP
       id: terraform
       run: |
         cd terraform
-        terraform output com3_private_ip > private_ip.txt
-        COM3_PRIVATE_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' private_ip.txt | head -1)
-        echo "COM3_PRIVATE_IP=$COM3_PRIVATE_IP" >> $GITHUB_ENV
-        echo "COM3_PUBLIC_IP=141.125.157.5" >> $GITHUB_ENV
-        echo "Com3 Private IP: $COM3_PRIVATE_IP"
-        echo "Com3 Public IP: 141.125.157.5"
+        terraform output com3_private_ip > ip.txt
+        COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
+        echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
+        echo "Com3 Private IP: $COM3_IP"
 
-    - name: Configure com3 with basic setup
-      run: |
-        echo "Configuring com3 at 141.125.157.5"
-        
-        # STEP 1: Login as root and create user
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@141.125.157.5 "adduser clusteradmin"
-        
-        # STEP 2: Set password
-        ssh -o StrictHostKeyChecking=no root@141.125.157.5 "echo '!Super@4' | passwd --stdin clusteradmin"
-        
-        # STEP 3: Setup sudo access
-        ssh -o StrictHostKeyChecking=no root@141.125.157.5 "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
-        ssh -o StrictHostKeyChecking=no root@141.125.157.5 "chmod 440 /etc/sudoers.d/clusteradmin"
-
-    - name: Setup NFS as clusteradmin
-      run: |
-        echo "Setting up NFS on com3 at 141.125.157.5 as clusteradmin"
-        
-        # Login as clusteradmin and run the exact commands you specified
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "sudo dnf install nfs-utils -y"
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "cd / && sudo mount -t nfs head:/home /home"
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
-
-    - name: Verify setup
-      run: |
-        echo "Verifying setup on com3 at 141.125.157.5"
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "id && echo '✓ Logged in as clusteradmin'"
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "mount | grep nfs && echo '✓ NFS mounted'"
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.157.5 "sudo -l | head -5 && echo '✓ Sudo access working'"
-
-    - name: Display completion message
+    - name: Display manual instructions
       run: |
         echo "=========================================="
-        echo "✅ COM3 DEPLOYMENT COMPLETE"
+        echo "✅ COM3 INSTANCE CREATED"
         echo "=========================================="
-        echo "com3 node (Public): 141.125.157.5"
-        echo "com3 node (Private): $COM3_PRIVATE_IP"
-        echo "User: clusteradmin"
-        echo "Password: !Super@4"
-        echo "NFS: Mounted /home from head node"
+        echo "com3 node (Private): $COM3_IP"
         echo ""
-        echo "To connect: ssh clusteradmin@141.125.157.5"
+        echo "MANUAL STEP REQUIRED:"
+        echo "1. Go to IBM Cloud Console"
+        echo "2. Find the floating IP: 141.125.157.5"
+        echo "3. Bind it to the new com3 instance"
+        echo "4. After binding, run these commands:"
+        echo ""
+        echo "First, as root:"
+        echo "ssh root@141.125.157.5"
+        echo "adduser clusteradmin"
+        echo "echo '!Super@4' | passwd --stdin clusteradmin"
+        echo "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        echo "chmod 440 /etc/sudoers.d/clusteradmin"
+        echo "exit"
+        echo ""
+        echo "Then, as clusteradmin:"
+        echo "ssh clusteradmin@141.125.157.5"
+        echo "sudo dnf install nfs-utils -y"
+        echo "cd / && sudo mount -t nfs head:/home /home"
+        echo "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
+        echo ""
+        echo "To verify:"
+        echo "ssh clusteradmin@141.125.157.5"
+        echo "id"
+        echo "mount | grep nfs"
+        echo "sudo -l"
         echo "=========================================="
