@@ -44,7 +44,6 @@ jobs:
     - name: Add com3 to head node known_hosts
       run: |
         echo "Adding com3 host key to head node known_hosts"
-        # First, add com3 host key to head node's known_hosts
         ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh-keyscan -H $COM3_IP >> ~/.ssh/known_hosts"
 
     - name: Configure com3 using ProxyJump
@@ -60,6 +59,13 @@ jobs:
         # STEP 3: Setup sudo access
         ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
         ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
+        
+        # STEP 4: Setup SSH key for clusteradmin (CRITICAL - this was missing!)
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "mkdir -p /home/clusteradmin/.ssh"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "cp /root/.ssh/authorized_keys /home/clusteradmin/.ssh/authorized_keys"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "chown -R clusteradmin:clusteradmin /home/clusteradmin/.ssh"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "chmod 700 /home/clusteradmin/.ssh"
+        ssh -o StrictHostKeyChecking=no -J clusteradmin@141.125.159.109 root@$COM3_IP "chmod 600 /home/clusteradmin/.ssh/authorized_keys"
 
     - name: Setup NFS on com3 using ProxyJump
       run: |
