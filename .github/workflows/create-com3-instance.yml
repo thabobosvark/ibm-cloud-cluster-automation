@@ -1,0 +1,57 @@
+name: Create IBM Compute Node
+
+on:
+  workflow_dispatch:  # Only manual triggers
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init and Apply
+      run: |
+        cd terraform
+        terraform init
+        terraform apply -auto-approve -var="ibmcloud_api_key=${{ secrets.IBM_CLOUD_API_KEY }}"
+
+    - name: Get com3 IP
+      id: terraform
+      run: |
+        cd terraform
+        terraform output com3_private_ip > ip.txt
+        COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
+        echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
+        echo "Com3 IP: $COM3_IP"
+
+    - name: Display manual configuration instructions
+      run: |
+        echo "=========================================="
+        echo "✅ IBM CLOUD INSTANCE CREATED"
+        echo "=========================================="
+        echo "com3 node: $COM3_IP"
+        echo ""
+        echo "MANUAL CONFIGURATION REQUIRED:"
+        echo "1. SSH to head node: ssh clusteradmin@141.125.159.109"
+        echo "2. From head node, SSH to com3: ssh root@$COM3_IP"
+        echo "3. Run these commands on com3:"
+        echo ""
+        echo "   adduser clusteradmin"
+        echo "   passwd clusteradmin"
+        echo "   (set password to: !Super@4)"
+        echo "   dnf install sudo -y"
+        echo "   usermod -aG wheel clusteradmin"
+        echo "   echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        echo "   chmod 440 /etc/sudoers.d/clusteradmin"
+        echo "   dnf install nfs-utils -y"
+        echo "   mount -t nfs 10.242.64.4:/home /home"
+        echo "   echo '10.242.64.4:/home /home nfs defaults 0 0' >> /etc/fstab"
+        echo "   setsebool -P use_nfs_home_dirs 1"
+        echo ""
+        echo "4. Update Ansible inventory: ./update-inventory.sh $COM3_IP"
+        echo "=========================================="
