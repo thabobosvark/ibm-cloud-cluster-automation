@@ -41,6 +41,12 @@ jobs:
         echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
         echo "Com3 Private IP: $COM3_IP"
 
+    - name: Add com3 to head node known_hosts
+      run: |
+        echo "Adding com3 host key to head node known_hosts"
+        # First, add com3 host key to head node's known_hosts
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh-keyscan -H $COM3_IP >> ~/.ssh/known_hosts"
+
     - name: Configure com3 using ProxyJump
       run: |
         echo "Configuring com3 at $COM3_IP using ProxyJump through head node"
