@@ -41,55 +41,29 @@ jobs:
         echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
         echo "Com3 IP: $COM3_IP"
 
-    - name: Configure com3 via head node
+    - name: Configure com3 user via head node
       run: |
         echo "Configuring com3 at $COM3_IP via head node"
-        
-        # SSH to head node, then from there SSH to com3 (since head can reach private IPs)
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 << 'HEAD_SCRIPT'
-          echo "Connected to head node, now configuring com3 at $COM3_IP"
-          
-          # STEP 1: Login to com3 as root and create user
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$COM3_IP "adduser clusteradmin"
-          
-          # STEP 2: Set password
-          ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
-          
-          # STEP 3: Setup sudo access
-          ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
-          ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
-          
-          echo "User setup complete on com3"
-HEAD_SCRIPT
+        # Use head node as jump host to configure com3
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$COM3_IP 'adduser clusteradmin'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no root@$COM3_IP 'echo \"!Super@4\" | passwd --stdin clusteradmin'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no root@$COM3_IP 'echo \"clusteradmin ALL=(ALL) NOPASSWD:ALL\" | tee /etc/sudoers.d/clusteradmin'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no root@$COM3_IP 'chmod 440 /etc/sudoers.d/clusteradmin'"
 
     - name: Setup NFS on com3 via head node
       run: |
         echo "Setting up NFS on com3 at $COM3_IP via head node"
-        
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 << 'NFS_SCRIPT'
-          echo "Setting up NFS on com3 at $COM3_IP"
-          
-          # Login to com3 as clusteradmin and run the exact commands
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "sudo dnf install nfs-utils -y"
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "cd / && sudo mount -t nfs head:/home /home"
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
-          
-          echo "NFS setup complete on com3"
-NFS_SCRIPT
+        # Use head node as jump host to setup NFS on com3
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'sudo dnf install nfs-utils -y'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'cd / && sudo mount -t nfs head:/home /home'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'cd ~ && sudo setsebool -P use_nfs_home_dirs 1'"
 
     - name: Verify setup via head node
       run: |
         echo "Verifying setup on com3 at $COM3_IP via head node"
-        
-        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 << 'VERIFY_SCRIPT'
-          echo "Verifying com3 setup at $COM3_IP"
-          
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "id && echo '✓ Logged in as clusteradmin'"
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
-          ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP "sudo -l | head -5 && echo '✓ Sudo access working'"
-          
-          echo "Verification complete"
-VERIFY_SCRIPT
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'id && echo \"✓ Logged in as clusteradmin\"'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'mount | grep nfs && echo \"✓ NFS mounted\"'"
+        ssh -o StrictHostKeyChecking=no clusteradmin@141.125.159.109 "ssh -o StrictHostKeyChecking=no clusteradmin@$COM3_IP 'sudo -l | head -5 && echo \"✓ Sudo access working\"'"
 
     - name: Display completion message
       run: |
