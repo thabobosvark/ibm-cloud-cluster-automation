@@ -45,15 +45,25 @@ jobs:
         # STEP 2: Set password
         ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
         
-        # STEP 3: Mount NFS
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "dnf install nfs-utils -y"
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "mount -t nfs 10.242.64.4:/home /home"
+        # STEP 3: Setup sudo access
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
+
+    - name: Setup NFS as clusteradmin
+      run: |
+        echo "Setting up NFS on com3 at $COM3_IP as clusteradmin"
+        
+        # Login as clusteradmin and run the exact commands you specified
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "sudo dnf install nfs-utils -y"
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "cd / && sudo mount -t nfs head:/home /home"
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "cd ~ && sudo setsebool -P use_nfs_home_dirs 1"
 
     - name: Verify setup
       run: |
         echo "Verifying setup on com3 at $COM3_IP"
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "id clusteradmin && echo '✓ User created'"
-        ssh -o StrictHostKeyChecking=no root@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "id && echo '✓ Logged in as clusteradmin'"
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
+        ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 clusteradmin@$COM3_IP "sudo -l | head -5 && echo '✓ Sudo access working'"
 
     - name: Display completion message
       run: |
