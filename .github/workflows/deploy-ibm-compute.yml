@@ -14,120 +14,69 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sshpass
+
+    - name: Setup SSH key for Terraform
+      run: |
+        # Copy the GitHub Actions SSH key to terraform directory
+        cp terraform/github_actions_key /tmp/ssh_key
+        cp terraform/github_actions_key.pub terraform/
+        chmod 600 /tmp/ssh_key
+
     - name: Terraform Init and Apply
       run: |
         cd terraform
         terraform init
         terraform apply -auto-approve -var="ibmcloud_api_key=${{ secrets.IBM_CLOUD_API_KEY }}"
 
-    - name: Get com3 IP
-      id: terraform
+    - name: Wait for com3 to be ready
+      run: |
+        echo "Waiting for com3 droplet to be fully provisioned..."
+        sleep 90
+
+    - name: Get com3 IP using simple method
       run: |
         cd terraform
+        # Simple method to get the IP
         terraform output com3_private_ip > ip.txt
         COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
         echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
         echo "Com3 IP: $COM3_IP"
 
-    - name: Wait for com3 to be ready
+    - name: Configure com3 with basic setup
       run: |
-        echo "Waiting for com3 to be fully provisioned..."
-        sleep 120
-
-    - name: Setup SSH for head node access
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-        chmod 600 ~/.ssh/id_ed25519
-        ssh-keyscan -H 141.125.159.109 >> ~/.ssh/known_hosts
-
-    - name: Deploy and run configuration script on head node
-      run: |
-        echo "Deploying configuration script to head node for com3 at $COM3_IP"
+        echo "Configuring com3 at $COM3_IP"
         
-        # Create the configuration script and send it to head node
-        cat > configure_com3.sh << 'SCRIPT'
-#!/bin/bash
-set -e
+        # Wait a bit more for SSH to be ready
+        sleep 30
+        
+        # Basic setup commands - EXACTLY like Digital Ocean
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i /tmp/ssh_key root@$COM3_IP "adduser clusteradmin"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "yum install sudo -y"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "usermod -aG wheel clusteradmin"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "chmod 440 /etc/sudoers.d/clusteradmin"
 
-COM3_IP="$1"
-echo "🚀 Starting configuration of com3 at $COM3_IP"
+    - name: Setup NFS on com3
+      run: |
+        echo "Setting up NFS on com3 at $COM3_IP"
+        
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "dnf install nfs-utils -y"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "mount -t nfs 10.242.64.4:/home /home"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "echo '10.242.64.4:/home /home nfs defaults 0 0' >> /etc/fstab"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "setsebool -P use_nfs_home_dirs 1"
 
-# Check if com3 is reachable from head node
-echo "📡 Testing connectivity to com3..."
-if ! ping -c 3 -W 1 "$COM3_IP" > /dev/null 2>&1; then
-  echo "❌ com3 at $COM3_IP is not reachable from head node"
-  exit 1
-fi
-echo "✅ com3 is reachable"
-
-# Check available SSH keys on head node
-echo "🔑 Checking available SSH keys..."
-find /root/.ssh /home/clusteradmin/.ssh -name "*" -type f 2>/dev/null | while read key; do
-  if [ -f "$key" ] && [[ "$key" == *.pub ]]; then
-    echo "Found public key: $key"
-  fi
-done
-
-# Try to connect to com3 with different approaches
-echo "🔐 Attempting SSH connection to com3..."
-
-# Method 1: Try with head node's SSH key
-if [ -f "/home/clusteradmin/.ssh/id_ed25519" ]; then
-  echo "Trying with head node's ed25519 key..."
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i /home/clusteradmin/.ssh/id_ed25519 root@"$COM3_IP" "echo '✅ Connected with head node key'"; then
-    SSH_KEY="/home/clusteradmin/.ssh/id_ed25519"
-  fi
-fi
-
-# Method 2: Try without specific key (use IBM Cloud default)
-if [ -z "$SSH_KEY" ]; then
-  echo "Trying with default SSH key..."
-  if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@"$COM3_IP" "echo '✅ Connected with default key'"; then
-    SSH_KEY=""
-  fi
-fi
-
-if [ -z "$SSH_KEY" ]; then
-  echo "❌ Cannot connect to com3 at $COM3_IP with any SSH method"
-  echo "Available troubleshooting steps:"
-  echo "1. Check IBM Cloud console for com3 instance status"
-  echo "2. Verify SSH key is attached to com3 instance"
-  echo "3. Try manual connection: ssh root@$COM3_IP"
-  echo "4. Use IBM Cloud serial console if SSH fails"
-  exit 1
-fi
-
-echo "✅ Successfully connected to com3, starting configuration..."
-
-# Basic configuration
-echo "👤 Creating clusteradmin user..."
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "adduser clusteradmin"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "echo '!Super@4' | passwd --stdin clusteradmin"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "dnf install sudo -y"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "usermod -aG wheel clusteradmin"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "echo 'clusteradmin ALL=(ALL) NOPASSWD:ALL' | tee /etc/sudoers.d/clusteradmin"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "chmod 440 /etc/sudoers.d/clusteradmin"
-
-echo "🔑 Setting up SSH access..."
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "mkdir -p /home/clusteradmin/.ssh"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJCCsrtROumtINmCBKvVHkd8gEK3d2CXmprcp97PIN0v clusteradmin@head' > /home/clusteradmin/.ssh/authorized_keys"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "chmod 700 /home/clusteradmin/.ssh"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "chmod 600 /home/clusteradmin/.ssh/authorized_keys"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "chown -R clusteradmin:clusteradmin /home/clusteradmin/.ssh"
-
-echo "📁 Setting up NFS..."
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "dnf install nfs-utils -y"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "mount -t nfs 10.242.64.4:/home /home"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "echo '10.242.64.4:/home /home nfs defaults 0 0' >> /etc/fstab"
-ssh -o StrictHostKeyChecking=no ${SSH_KEY:+-i $SSH_KEY} root@"$COM3_IP" "setsebool -P use_nfs_home_dirs 1"
-
-echo "✅ com3 configuration completed successfully!"
-SCRIPT
-
-        # Copy script to head node and run it
-        scp -i ~/.ssh/id_ed25519 configure_com3.sh clusteradmin@141.125.159.109:/home/clusteradmin/
-        ssh -i ~/.ssh/id_ed25519 clusteradmin@141.125.159.109 "chmod +x /home/clusteradmin/configure_com3.sh && /home/clusteradmin/configure_com3.sh $COM3_IP"
+    - name: Verify setup
+      run: |
+        echo "Verifying setup on com3 at $COM3_IP"
+        
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "id clusteradmin && echo '✓ User created'"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
+        ssh -o StrictHostKeyChecking=no -i /tmp/ssh_key root@$COM3_IP "sudo -U clusteradmin -l | head -5 && echo '✓ Sudo access working'"
 
     - name: Update Ansible inventory
       run: |
