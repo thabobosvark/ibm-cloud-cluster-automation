@@ -28,6 +28,11 @@ data "ibm_is_security_group" "existing_sg" {
   name = "footless-viper-prowler-fabric"  # Your default security group
 }
 
+# Use the existing floating IP
+data "ibm_is_floating_ip" "com3_floating_ip" {
+  name = "floatingip"
+}
+
 # Create the compute instance using the same infrastructure as your existing nodes
 resource "ibm_is_instance" "com3_node" {
   name    = "com3-${formatdate("YYYYMMDD-hhmmss", timestamp())}"
@@ -49,10 +54,20 @@ resource "ibm_is_instance" "com3_node" {
   }
 }
 
+# Bind the existing floating IP to the com3 instance
+resource "ibm_is_floating_ip_reservation" "com3_fip" {
+  floating_ip = data.ibm_is_floating_ip.com3_floating_ip.address
+  target      = ibm_is_instance.com3_node.primary_network_interface[0].id
+}
+
 output "com3_instance_id" {
   value = ibm_is_instance.com3_node.id
 }
 
 output "com3_private_ip" {
   value = ibm_is_instance.com3_node.primary_network_interface[0].primary_ip[0].address
+}
+
+output "com3_public_ip" {
+  value = data.ibm_is_floating_ip.com3_floating_ip.address
 }
