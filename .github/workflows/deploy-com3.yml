@@ -1,0 +1,69 @@
+name: Deploy COM3 Node
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init and Apply
+      run: |
+        cd terraform
+        terraform init
+        terraform apply -auto-approve -var="ibmcloud_api_key=${{ secrets.IBM_CLOUD_API_KEY }}"
+
+    - name: Wait for com3 to be ready
+      run: |
+        sleep 60
+
+    - name: Get com3 IP
+      id: terraform
+      run: |
+        cd terraform
+        terraform output com3_private_ip > ip.txt
+        COM3_IP=$(grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+' ip.txt | head -1)
+        echo "COM3_IP=$COM3_IP" >> $GITHUB_ENV
+        echo "Com3 IP: $COM3_IP"
+
+    - name: Configure com3 with basic setup
+      run: |
+        echo "Configuring com3 at $COM3_IP"
+        
+        # STEP 1: Login as root and create user
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 root@$COM3_IP "adduser clusteradmin"
+        
+        # STEP 2: Set password
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "echo '!Super@4' | passwd --stdin clusteradmin"
+        
+        # STEP 3: Mount NFS
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "dnf install nfs-utils -y"
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "mount -t nfs 10.242.64.4:/home /home"
+
+    - name: Verify setup
+      run: |
+        echo "Verifying setup on com3 at $COM3_IP"
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "id clusteradmin && echo '✓ User created'"
+        ssh -o StrictHostKeyChecking=no root@$COM3_IP "mount | grep nfs && echo '✓ NFS mounted'"
+
+    - name: Display completion message
+      run: |
+        echo "=========================================="
+        echo "✅ COM3 DEPLOYMENT COMPLETE"
+        echo "=========================================="
+        echo "com3 node: $COM3_IP"
+        echo "User: clusteradmin"
+        echo "Password: !Super@4"
+        echo "NFS: Mounted /home from head node"
+        echo ""
+        echo "To connect: ssh clusteradmin@$COM3_IP"
+        echo "=========================================="
